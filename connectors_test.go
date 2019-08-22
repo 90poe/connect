@@ -422,6 +422,50 @@ var _ = Describe("Connector CRUD", func() {
 			})
 		})
 	})
+
+	Describe("GetConnectorTaskStatus", func() {
+		var statusCode int
+		resultStatus := &TaskState{
+			ID:       0,
+			State:    "RUNNING",
+			WorkerID: "127.0.0.1:8083",
+		}
+
+		BeforeEach(func() {
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/connectors/local-file-source/tasks/0/status"),
+					ghttp.VerifyHeader(jsonAcceptHeader),
+					ghttp.RespondWithJSONEncodedPtr(&statusCode, &resultStatus),
+				),
+			)
+		})
+
+		Context("when existing task id is given", func() {
+			BeforeEach(func() {
+				statusCode = http.StatusOK
+			})
+
+			It("returns connector task status", func() {
+				status, _, err := client.GetConnectorTaskStatus("local-file-source", 0)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(status).To(Equal(resultStatus))
+			})
+		})
+
+		Context("when nonexisting task id is given", func() {
+			BeforeEach(func() {
+				statusCode = http.StatusNotFound
+			})
+
+			It("returns an error response", func() {
+				status, resp, err := client.GetConnectorTaskStatus("local-file-source", 0)
+				Expect(err).To(HaveOccurred())
+				Expect(*status).To(BeZero())
+				Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			})
+		})
+	})
 })
 
 var _ = Describe("Connector Lifecycle", func() {
@@ -555,6 +599,57 @@ var _ = Describe("Connector Lifecycle", func() {
 
 			It("returns error with a server error response", func() {
 				resp, err := client.RestartConnector("local-file-source")
+				Expect(err).To(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+			})
+		})
+	})
+
+	Describe("RestartConnectorTask", func() {
+		var statusCode int
+
+		BeforeEach(func() {
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("POST", "/connectors/local-file-source/tasks/0/restart"),
+					ghttp.VerifyHeader(jsonAcceptHeader),
+					ghttp.RespondWithPtr(&statusCode, nil),
+				),
+			)
+		})
+
+		Context("when existing task id is given", func() {
+			BeforeEach(func() {
+				statusCode = http.StatusOK
+			})
+
+			It("restarts connector", func() {
+				resp, err := client.RestartConnectorTask("local-file-source", 0)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			})
+
+			Context("when rebalance is in process", func() {
+				BeforeEach(func() {
+					statusCode = http.StatusConflict
+				})
+
+				It("returns error with a conflict response", func() {
+					resp, err := client.RestartConnectorTask("local-file-source", 0)
+					Expect(err).To(HaveOccurred())
+					Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+				})
+			})
+		})
+
+		Context("when nonexisting task id is given", func() {
+			BeforeEach(func() {
+				// The API actually throws a 500 on POST to nonexistent
+				statusCode = http.StatusInternalServerError
+			})
+
+			It("returns error with a server error response", func() {
+				resp, err := client.RestartConnectorTask("local-file-source", 0)
 				Expect(err).To(HaveOccurred())
 				Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
 			})
